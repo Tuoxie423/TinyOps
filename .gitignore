@@ -1,0 +1,42 @@
+# ---------- 构建产物 ----------
+/dist/
+/projectmanager
+/projectmanager.exe
+*.exe
+*.test
+*.out
+coverage.*
+
+# ---------- 本地配置（可能含密码，不要提交）----------
+/config.yaml
+/config.local.yaml
+.env
+.env.local
+
+# ---------- 运行时数据与临时文件 ----------
+# 面板「添加项目」的持久化数据（服务端在 /etc/projectmanager 下）
+projects.added.json
+# 覆盖/编辑产生的备份与临时文件
+*.bak
+*.tmp
+.pm-upload-*
+.pm-edit-*
+.projects-added-*
+
+# ---------- 日志 ----------
+*.log
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---------- Go 本地工作区 ----------
+go.work
+go.work.sum
+
+# ---------- Claude Code 本地设置 ----------
+.claude/settings.local.json

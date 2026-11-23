@@ -1,0 +1,17 @@
+[Unit]
+Description=TinyOps (systemd 项目运维面板)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 需要 root 才能执行 systemctl 和使用终端
+User=root
+WorkingDirectory=/opt/projectmanager
+EnvironmentFile=-/etc/projectmanager/env
+ExecStart=/opt/projectmanager/projectmanager -config /etc/projectmanager/config.yaml
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

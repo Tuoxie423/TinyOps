@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinyOps</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90' fill='%234c8dff'%3E%E2%97%86%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div id="login-mask" class="mask">
+  <form id="login-form" class="login-box">
+    <div class="login-logo">◆</div>
+    <h1>TinyOps</h1>
+    <p class="muted">输入密码以继续</p>
+    <input id="login-password" type="password" autocomplete="current-password" placeholder="密码" autofocus required>
+    <button type="submit" class="primary">登录</button>
+    <div id="login-error" class="error"></div>
+  </form>
+</div>
+
+<header class="topbar">
+  <div class="brand"><span class="logo">◆</span><span>TinyOps</span></div>
+  <nav id="tabs">
+    <button class="tab active" data-tab="overview">概览</button>
+    <button class="tab" data-tab="projects">项目</button>
+    <button class="tab" data-tab="nginx">Nginx</button>
+    <button class="tab" data-tab="files">文件</button>
+    <button class="tab" data-tab="terminal">终端</button>
+  </nav>
+  <div class="topbar-right">
+    <span id="host-label" class="muted small"></span>
+    <button id="logout" class="ghost small">退出</button>
+  </div>
+</header>
+
+<main>
+  <section id="tab-overview" class="tab-pane active">
+    <div class="cards">
+      <div class="card">
+        <div class="card-title">CPU</div>
+        <div class="big" id="ov-cpu">--</div>
+        <div class="bar"><span id="ov-cpu-bar"></span></div>
+        <div class="muted small" id="ov-load">负载 --</div>
+      </div>
+      <div class="card">
+        <div class="card-title">内存</div>
+        <div class="big" id="ov-mem">--</div>
+        <div class="bar"><span id="ov-mem-bar"></span></div>
+        <div class="muted small" id="ov-mem-detail">--</div>
+      </div>
+      <div class="card">
+        <div class="card-title">网络</div>
+        <div class="big small" id="ov-net">--</div>
+        <div class="muted small" id="ov-net-total">--</div>
+      </div>
+      <div class="card">
+        <div class="card-title">主机</div>
+        <div class="big small" id="ov-host">--</div>
+        <div class="muted small" id="ov-host-detail">--</div>
+      </div>
+    </div>
+
+    <div class="card mt">
+      <div class="card-title">磁盘</div>
+      <div id="ov-disks"></div>
+    </div>
+
+    <div class="card mt">
+      <div class="card-title">进程 Top 8（按 CPU）</div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>PID</th><th>用户</th><th>CPU%</th><th>MEM%</th><th>命令</th></tr></thead>
+          <tbody id="ov-top"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-projects" class="tab-pane">
+    <div class="section-head">
+      <h2>systemd 项目</h2>
+      <div class="row">
+        <button id="add-project" class="primary small">添加项目</button>
+        <button id="projects-refresh" class="ghost small">刷新</button>
+      </div>
+    </div>
+    <div id="projects-list" class="proj-grid"></div>
+  </section>
+
+  <section id="tab-nginx" class="tab-pane">
+    <div class="section-head">
+      <h2>Nginx 配置</h2>
+      <div class="row">
+        <select id="nginx-group"></select>
+        <button id="nginx-test" class="ghost small">nginx -t</button>
+        <button id="nginx-reload" class="ghost small">重载</button>
+      </div>
+    </div>
+    <div class="nginx-layout">
+      <div class="file-list" id="nginx-files"></div>
+      <div class="nginx-main">
+        <div class="editor-head">
+          <div class="editor-file">
+            <span class="mono small" id="nginx-path">选择左侧文件</span>
+            <span class="muted small mono" id="nginx-target"></span>
+            <span id="nginx-dirty" class="dirty hidden">● 未保存</span>
+          </div>
+          <div class="row">
+            <button id="nginx-revert" class="ghost small" disabled>撤销修改</button>
+            <button id="nginx-save" class="primary small" disabled>保存</button>
+          </div>
+        </div>
+        <textarea id="nginx-editor" class="editor" spellcheck="false" wrap="off"
+          placeholder="选择左侧文件后在这里编辑，Ctrl+S 保存"></textarea>
+        <pre id="nginx-result" class="code result hidden"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-files" class="tab-pane">
+    <div class="section-head">
+      <h2>文件</h2>
+      <div class="row">
+        <select id="files-project"></select>
+        <label class="button ghost small" for="files-input">上传到当前目录</label>
+        <input id="files-input" type="file" multiple hidden>
+      </div>
+    </div>
+    <div class="muted small">拖到列表空白处：上传到当前目录；拖到某个文件行上：覆盖该文件（旧文件自动备份为 .bak）。</div>
+    <div id="files-breadcrumb" class="breadcrumb mt"></div>
+    <div id="files-drop" class="dropzone">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>名称</th><th>大小</th><th>权限</th><th>修改时间</th><th></th></tr></thead>
+          <tbody id="files-list"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-terminal" class="tab-pane tab-terminal">
+    <div class="section-head">
+      <h2>终端</h2>
+      <div class="row">
+        <button id="term-reconnect" class="ghost small">重连</button>
+        <button id="term-clear" class="ghost small">清屏</button>
+      </div>
+    </div>
+    <div id="terminal" class="terminal"></div>
+  </section>
+</main>
+
+<div id="log-modal" class="mask hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div><strong id="log-title">日志</strong> <span class="muted small" id="log-status"></span></div>
+      <button id="log-close" class="ghost small">关闭</button>
+    </div>
+    <pre id="log-content" class="code log"></pre>
+  </div>
+</div>
+
+<div id="add-project-modal" class="mask hidden">
+  <form id="add-project-form" class="modal form-modal">
+    <div class="modal-head">
+      <strong>添加项目</strong>
+      <button type="button" id="add-project-close" class="ghost small">关闭</button>
+    </div>
+    <div class="form-grid">
+      <label>项目类型
+        <select id="add-type">
+          <option value="service">后端服务（systemd）</option>
+          <option value="static">静态前端（nginx）</option>
+        </select>
+      </label>
+      <label id="add-unit-wrap">Service 名称
+        <input id="add-unit" placeholder="app-api 或 app-api.service" autocomplete="off" required>
+      </label>
+      <label>项目目录
+        <input id="add-dir" placeholder="/opt/apps/api" autocomplete="off" required>
+      </label>
+      <label id="add-site-wrap" class="hidden">Nginx 站点配置（可选）
+        <input id="add-site" placeholder="sites-available/demo.conf；留空自动按 root 匹配" autocomplete="off">
+      </label>
+      <label>显示名称（可选）
+        <input id="add-name" placeholder="默认使用 service 名去掉 .service" autocomplete="off">
+      </label>
+      <label>描述（可选）
+        <input id="add-desc" placeholder="默认使用 unit 里的 Description" autocomplete="off">
+      </label>
+    </div>
+    <div id="add-project-error" class="error"></div>
+    <div class="row" style="justify-content: flex-end; margin-top: 12px">
+      <button type="button" id="add-project-cancel" class="ghost">取消</button>
+      <button type="submit" class="primary">添加</button>
+    </div>
+  </form>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
