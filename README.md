@@ -77,20 +77,36 @@ ssh -N -L 4237:127.0.0.1:4237 ubuntu@your-server
 
 产品名是 TinyOps，二进制、systemd unit 和目录沿用 `projectmanager`，老部署不用迁移。
 
+从 Releases 下载 `projectmanager-linux-amd64.tar.gz`，服务器上执行：
+
 ```bash
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/projectmanager .
-
-scp dist/projectmanager config.yaml deploy/projectmanager.service root@server:/tmp/
-
-ssh root@server
-install -Dm755 /tmp/projectmanager /opt/projectmanager/projectmanager
-install -Dm600 /tmp/config.yaml /etc/projectmanager/config.yaml
-install -Dm644 /tmp/projectmanager.service /etc/systemd/system/projectmanager.service
-printf 'PM_PASSWORD=换成强密码\n' > /etc/projectmanager/env && chmod 600 /etc/projectmanager/env
-systemctl daemon-reload && systemctl enable --now projectmanager
+tar -xzf projectmanager-linux-amd64.tar.gz
+cd projectmanager-deploy
+sudo bash install.sh
 ```
 
-升级时替换二进制，然后 `systemctl restart projectmanager`，配置和 `projects.added.json` 不会丢。
+首次安装会提示设置密码。非交互环境：
+
+```bash
+PM_PASSWORD=换成强密码 sudo bash install.sh
+```
+
+脚本会：
+
+- 安装二进制，已有二进制先备份为 `.bak`
+- 首次安装时创建配置和 systemd unit，已存在的配置、unit 保持不动
+- 已有 unit 时，从 `ExecStart` 解析实际的二进制和配置路径，兼容自定义部署目录
+- 启动失败自动回滚旧二进制
+- 启动后请求 `/api/me` 做一次健康检查
+
+升级时解压新包，重复执行即可，配置和 `projects.added.json` 不受影响。
+
+打发布包：
+
+```bash
+bash scripts/package.sh
+# 输出 dist/projectmanager-linux-amd64.tar.gz
+```
 
 ## 配置
 
