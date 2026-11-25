@@ -50,6 +50,8 @@ let filesInited = false;
 let filesProject = "";
 let filesPath = "";
 let pendingFilesProject = "";
+let deleteTarget = null; // { project, path }
+let unitName = "";
 
 let term = null;
 let fitAddon = null;
@@ -395,7 +397,8 @@ function renderProjects(list) {
            <button class="danger small" data-act="stop" ${running ? "" : "disabled"}>停止</button>
            <button class="ghost small" data-act="restart" ${running ? "" : "disabled"}>重启</button>
            ${folderBtn}
-           <button class="ghost small" data-act="logs">日志</button>`;
+           <button class="ghost small" data-act="logs">日志</button>
+           <button class="ghost small" data-act="unit">Unit 文件</button>`;
 
       return `
       <div class="proj-card ${running ? "is-active" : ""}" data-name="${esc(p.name)}">
@@ -428,6 +431,10 @@ function renderProjects(list) {
         openProjectFiles(name);
         return;
       }
+      if (act === "unit") {
+        openUnit(name);
+        return;
+      }
       await doProjectAction(name, act, btn);
     });
   });
@@ -447,6 +454,63 @@ async function doProjectAction(name, act, btn) {
     toast(`${name} ${label}失败：${e.message}`, true);
   } finally {
     loadProjects().catch(() => {});
+  }
+}
+
+/* ---------------- Unit 文件弹窗 ---------------- */
+
+async function openUnit(name) {
+  unitName = name;
+  $("#unit-modal").classList.remove("hidden");
+  $("#unit-title").textContent = name + " · Unit 文件";
+  $("#unit-path").textContent = "";
+  const result = $("#unit-result");
+  result.classList.add("hidden");
+  result.textContent = "";
+  const ed = $("#unit-editor");
+  ed.value = "";
+  ed.disabled = true;
+  try {
+    const d = await api(`/api/projects/${encodeURIComponent(name)}/unit`);
+    $("#unit-path").textContent = d.path || "";
+    ed.value = d.content || "";
+  } catch (e) {
+    toast("读取 unit 失败：" + e.message, true);
+    result.textContent = e.message;
+    result.classList.remove("hidden");
+    result.classList.add("bad");
+  } finally {
+    ed.disabled = false;
+  }
+}
+
+function closeUnit() {
+  $("#unit-modal").classList.add("hidden");
+  unitName = "";
+}
+
+async function saveUnit() {
+  if (!unitName) return;
+  const content = $("#unit-editor").value;
+  const btn = $("#unit-save");
+  btn.disabled = true;
+  try {
+    const d = await api(`/api/projects/${encodeURIComponent(unitName)}/unit`, {
+      method: "PUT",
+      body: { content },
+    });
+    const out = $("#unit-result");
+    out.classList.remove("hidden");
+    let text = d.reload_output || "";
+    text += (text ? "\n" : "") + (d.ok ? "✅ 已保存，daemon-reload 完成" : "❌ " + (d.error || "保存失败"));
+    if (d.backup) text += "\n备份：" + d.backup;
+    out.textContent = text;
+    out.classList.toggle("bad", !d.ok);
+    toast(d.ok ? "unit 已保存并 reload" : "unit 保存失败", !d.ok);
+  } catch (e) {
+    toast("保存失败：" + e.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -788,6 +852,20 @@ function initFiles() {
     $("#files-project").addEventListener("change", () => {
       filesProject = $("#files-project").value;
       filesPath = "";
+      $("#files-path").value = "";
+      loadFiles();
+    });
+    $("#files-path").addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const v = e.target.value.trim();
+      if (!v) return;
+      if (!v.startsWith("/")) {
+        toast("请输入绝对路径，例如 /var/www", true);
+        return;
+      }
+      filesProject = "";
+      filesPath = v;
+      $("#files-project").value = "";
       loadFiles();
     });
     $("#files-input").addEventListener("change", (e) => {
@@ -815,9 +893,11 @@ function fillProjectSelect() {
   const sel = $("#files-project");
   const withDir = projects.filter((p) => p.dir);
   const prev = pendingFilesProject || sel.value || filesProject;
-  sel.innerHTML = withDir.length
-    ? withDir.map((p) => `<option value="${esc(p.name)}">${esc(p.name)} — ${esc(p.dir)}</option>`).join("")
-    : '<option value="">（没有配置目录的项目）</option>';
+  const opts = ['<option value="">（自定义路径）</option>'];
+  for (const p of withDir) {
+    opts.push(`<option value="${esc(p.name)}">${esc(p.name)} — ${esc(p.dir)}</option>`);
+  }
+  sel.innerHTML = opts.join("");
   if (prev && withDir.some((p) => p.name === prev)) sel.value = prev;
   pendingFilesProject = "";
   filesProject = sel.value;
@@ -826,15 +906,17 @@ function fillProjectSelect() {
 function openProjectFiles(name) {
   pendingFilesProject = name;
   filesPath = "";
+  $("#files-path").value = "";
   switchTab("files");
 }
 
 async function loadFiles() {
   const tbody = $("#files-list");
+  const isAbs = !filesProject;
   renderBreadcrumb(filesPath);
 
-  if (!filesProject) {
-    tbody.innerHTML = '<tr><td colspan="5" class="muted" style="padding:16px">请先在 config.yaml 中给项目配置 dir 字段</td></tr>';
+  if (!filesProject && !filesPath) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted" style="padding:16px">请选择项目，或输入一个绝对路径</td></tr>';
     return;
   }
 
@@ -844,7 +926,8 @@ async function loadFiles() {
       `/api/files/list?project=${encodeURIComponent(filesProject)}&path=${encodeURIComponent(filesPath)}`
     );
     const rows = [];
-    if (filesPath) {
+    const showUp = isAbs ? filesPath !== "/" : !!filesPath;
+    if (showUp) {
       rows.push(`<tr class="dir" data-nav=".."><td>⬆ 上一级</td><td></td><td></td><td></td><td></td></tr>`);
     }
     for (const e of d.entries || []) {
@@ -855,14 +938,21 @@ async function loadFiles() {
           <td class="muted">${e.is_dir ? "" : formatBytes(e.size)}</td>
           <td class="muted mono small">${esc(e.mode || "")}</td>
           <td class="muted small">${fmtTime(e.mod_time)}</td>
-          <td class="actions">${e.is_dir ? "" : `<a href="${esc(base)}" target="_blank">下载</a>`}</td>
+          <td class="actions">${e.is_dir ? "" : `<a href="${esc(base)}" target="_blank">下载</a>`}<button class="danger small del" type="button">删除</button></td>
         </tr>`);
     }
     tbody.innerHTML = rows.join("") || '<tr><td colspan="5" class="muted" style="padding:16px">空目录</td></tr>';
 
+    tbody.querySelectorAll("button.del").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        openDelete(btn.closest("tr").dataset.path);
+      });
+    });
+
     tbody.querySelectorAll("tr[data-nav], tr[data-dir]").forEach((tr) => {
       tr.addEventListener("click", (ev) => {
-        if (ev.target.closest("a")) return;
+        if (ev.target.closest("a, button")) return;
         if (tr.dataset.nav === "..") {
           filesPath = parentPath(filesPath);
           loadFiles();
@@ -879,11 +969,14 @@ async function loadFiles() {
 
 function renderBreadcrumb(p) {
   const bc = $("#files-breadcrumb");
+  const isAbs = !filesProject;
   const parts = p ? p.split("/").filter(Boolean) : [];
-  let html = `<a href="#" data-path="">${esc(filesProject || "项目")}</a>`;
+  const rootPath = isAbs ? "/" : "";
+  const rootLabel = filesProject || "/";
+  let html = `<a href="#" data-path="${esc(rootPath)}">${esc(rootLabel)}</a>`;
   let acc = "";
   for (const seg of parts) {
-    acc = acc ? acc + "/" + seg : seg;
+    acc = isAbs ? (acc === "/" ? "" : acc) + "/" + seg : acc ? acc + "/" + seg : seg;
     html += ` / <a href="#" data-path="${esc(acc)}">${esc(seg)}</a>`;
   }
   bc.innerHTML = html;
@@ -897,13 +990,19 @@ function renderBreadcrumb(p) {
 }
 
 function parentPath(p) {
+  if (p.startsWith("/")) {
+    const segs = p.split("/").filter(Boolean);
+    segs.pop();
+    return segs.length ? "/" + segs.join("/") : "/";
+  }
   const parts = p.split("/").filter(Boolean);
   parts.pop();
   return parts.join("/");
 }
 
 function joinPath(base, name) {
-  return base ? base + "/" + name : name;
+  if (!base) return name;
+  return base.endsWith("/") ? base + name : base + "/" + name;
 }
 
 function setupDrop() {
@@ -920,7 +1019,7 @@ function setupDrop() {
     e.preventDefault();
     dz.classList.remove("dragover");
     const files = Array.from(e.dataTransfer.files || []);
-    if (!files.length || !filesProject) return;
+    if (!files.length || (!filesProject && !filesPath)) return;
 
     let basePath = filesPath;
     let replacePath = null;
@@ -934,8 +1033,8 @@ function setupDrop() {
 }
 
 async function uploadAll(files, basePath, replacePath) {
-  if (!filesProject) {
-    toast("请先选择项目", true);
+  if (!filesProject && !filesPath) {
+    toast("请先选择项目或输入路径", true);
     return;
   }
   const jobs = files.map((file, i) => {
@@ -956,6 +1055,40 @@ async function uploadOne(path, file) {
     toast(`已上传 ${path}（${formatBytes(d.size)}）${d.backup ? "，旧文件已备份为 .bak" : ""}`);
   } catch (e) {
     toast(`上传 ${path} 失败：${e.message}`, true);
+  }
+}
+
+function openDelete(path) {
+  deleteTarget = { project: filesProject, path };
+  $("#delete-path").textContent = (filesProject ? filesProject + "/" : "") + path;
+  $("#delete-password").value = "";
+  $("#delete-error").textContent = "";
+  $("#delete-modal").classList.remove("hidden");
+  setTimeout(() => $("#delete-password").focus(), 50);
+}
+
+function closeDelete() {
+  $("#delete-modal").classList.add("hidden");
+  deleteTarget = null;
+}
+
+async function submitDelete(e) {
+  e.preventDefault();
+  if (!deleteTarget) return;
+  const password = $("#delete-password").value;
+  if (!password) return;
+  const errEl = $("#delete-error");
+  errEl.textContent = "";
+  try {
+    await api("/api/files/delete", {
+      method: "POST",
+      body: { project: deleteTarget.project, path: deleteTarget.path, password },
+    });
+    closeDelete();
+    toast("已删除");
+    loadFiles();
+  } catch (err) {
+    errEl.textContent = err.message;
   }
 }
 
@@ -1110,6 +1243,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target === $("#add-project-modal")) closeAddProject();
   });
   $("#add-project-form").addEventListener("submit", submitAddProject);
+
+  $("#delete-close").addEventListener("click", closeDelete);
+  $("#delete-cancel").addEventListener("click", closeDelete);
+  $("#delete-modal").addEventListener("click", (e) => {
+    if (e.target === $("#delete-modal")) closeDelete();
+  });
+  $("#delete-form").addEventListener("submit", submitDelete);
+
+  $("#unit-close").addEventListener("click", closeUnit);
+  $("#unit-close2").addEventListener("click", closeUnit);
+  $("#unit-modal").addEventListener("click", (e) => {
+    if (e.target === $("#unit-modal")) closeUnit();
+  });
+  $("#unit-save").addEventListener("click", saveUnit);
 
   $("#nginx-test").addEventListener("click", () => nginxAction("test"));
   $("#nginx-reload").addEventListener("click", () => nginxAction("reload"));

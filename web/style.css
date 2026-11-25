@@ -302,6 +302,13 @@ main {
 }
 .editor:focus { border-color: var(--accent-dim); }
 .editor::placeholder { color: var(--placeholder); }
+.unit-editor { flex: none; height: 46vh; margin-top: 8px; }
+.path-input {
+  font: inherit; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px;
+  min-width: 200px; flex: 1 1 200px;
+}
+.path-input:focus { outline: none; border-color: var(--accent-dim); }
 .code {
   background: var(--code-bg);
   border: 1px solid var(--border);

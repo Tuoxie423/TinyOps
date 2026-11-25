@@ -19,14 +19,43 @@ import (
 type Service struct {
 	mu       sync.RWMutex
 	projects map[string]config.Project
+	roots    []string // 允许访问的绝对目录：项目 dir + files.extra_dirs
 }
 
-func New(projects []config.Project) *Service {
+func New(projects []config.Project, extraDirs []string) *Service {
 	m := make(map[string]config.Project, len(projects))
+	s := &Service{projects: m}
 	for _, p := range projects {
 		m[p.Name] = p
+		if p.Dir != "" {
+			s.roots = append(s.roots, filepath.Clean(p.Dir))
+		}
 	}
-	return &Service{projects: m}
+	for _, d := range extraDirs {
+		d = filepath.Clean(d)
+		if d != "" && !hasRoot(s.roots, d) {
+			s.roots = append(s.roots, d)
+		}
+	}
+	return s
+}
+
+func hasRoot(roots []string, p string) bool {
+	for _, r := range roots {
+		if r == p {
+			return true
+		}
+	}
+	return false
+}
+
+// within 判断 p 是否在 root 目录内（含相等）。
+func within(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (s *Service) Project(name string) (config.Project, bool) {
@@ -102,6 +131,19 @@ func (s *Service) List(project, rel string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.listDir(abs, clean)
+}
+
+// ListPath 按绝对路径列出目录（白名单模式）。
+func (s *Service) ListPath(abs string) ([]Entry, error) {
+	clean, err := s.resolveAbs(abs)
+	if err != nil {
+		return nil, err
+	}
+	return s.listDir(clean, clean)
+}
+
+func (s *Service) listDir(abs, relBase string) ([]Entry, error) {
 	items, err := os.ReadDir(abs)
 	if err != nil {
 		return nil, err
@@ -114,7 +156,7 @@ func (s *Service) List(project, rel string) ([]Entry, error) {
 		}
 		out = append(out, Entry{
 			Name:    it.Name(),
-			Path:    path.Join(clean, it.Name()),
+			Path:    path.Join(relBase, it.Name()),
 			IsDir:   it.IsDir(),
 			Size:    info.Size(),
 			Mode:    info.Mode().Perm().String(),
@@ -130,12 +172,31 @@ func (s *Service) List(project, rel string) ([]Entry, error) {
 	return out, nil
 }
 
+// resolveAbs 校验绝对路径是否落在白名单内，返回干净路径。
+func (s *Service) resolveAbs(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if !filepath.IsAbs(raw) {
+		return "", errors.New("请使用绝对路径，例如 /var/www")
+	}
+	clean := filepath.Clean(raw)
+	for _, r := range s.roots {
+		if within(r, clean) {
+			return clean, nil
+		}
+	}
+	return "", errors.New("该目录不在允许访问范围内，可在配置 files.extra_dirs 中添加")
+}
+
 func (s *Service) Abs(project, rel string) (string, error) {
 	_, _, abs, err := s.resolve(project, rel)
 	return abs, err
 }
 
-// 临时文件 + rename，避免覆盖运行中二进制时 ETXTBSY。
+// AbsPath 返回校验后的绝对路径（白名单模式）。
+func (s *Service) AbsPath(abs string) (string, error) {
+	return s.resolveAbs(abs)
+}
+
 func (s *Service) Save(project, rel string, src io.Reader) (saved, backup string, size int64, err error) {
 	_, _, abs, err := s.resolve(project, rel)
 	if err != nil {
@@ -144,6 +205,20 @@ func (s *Service) Save(project, rel string, src io.Reader) (saved, backup string
 	if strings.HasSuffix(rel, "/") || rel == "" {
 		return "", "", 0, errors.New("目标必须是文件")
 	}
+	return s.saveTo(abs, src)
+}
+
+// SavePath 按绝对路径覆盖文件（白名单模式）。
+func (s *Service) SavePath(abs string, src io.Reader) (saved, backup string, size int64, err error) {
+	clean, err := s.resolveAbs(abs)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return s.saveTo(clean, src)
+}
+
+// 临时文件 + rename，避免覆盖运行中二进制时 ETXTBSY。
+func (s *Service) saveTo(abs string, src io.Reader) (saved, backup string, size int64, err error) {
 	if fi, statErr := os.Stat(abs); statErr == nil && fi.IsDir() {
 		return "", "", 0, errors.New("目标是目录")
 	}
@@ -202,6 +277,48 @@ func (s *Service) Save(project, rel string, src io.Reader) (saved, backup string
 		return "", "", 0, err
 	}
 	return abs, backup, size, nil
+}
+
+// Delete 删除项目目录内的文件/空目录。
+func (s *Service) Delete(project, rel string) error {
+	_, _, abs, err := s.resolve(project, rel)
+	if err != nil {
+		return err
+	}
+	return s.deleteAt(abs)
+}
+
+// DeletePath 按绝对路径删除（白名单模式）。
+func (s *Service) DeletePath(abs string) error {
+	clean, err := s.resolveAbs(abs)
+	if err != nil {
+		return err
+	}
+	return s.deleteAt(clean)
+}
+
+func (s *Service) deleteAt(abs string) error {
+	fi, err := os.Lstat(abs)
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		clean := filepath.Clean(abs)
+		for _, r := range s.roots {
+			if clean == r {
+				return errors.New("不能删除允许目录的根目录")
+			}
+		}
+		entries, err := os.ReadDir(abs)
+		if err != nil {
+			return err
+		}
+		if len(entries) > 0 {
+			return errors.New("目录非空，请先清空或使用终端删除")
+		}
+	}
+	// 文件、软链（只删链接本身）、空目录
+	return os.Remove(abs)
 }
 
 func copyFile(src, dst string) error {

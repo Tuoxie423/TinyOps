@@ -70,7 +70,7 @@ func main() {
 	defer info.Stop()
 
 	ng := nginx.New(cfg.Nginx, cfg.Systemctl)
-	fileSvc := files.New(cfg.Projects)
+	fileSvc := files.New(cfg.Projects, cfg.Files.ExtraDirs)
 	termSrv := term.New(cfg.Terminal)
 
 	started := time.Now()

@@ -53,6 +53,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	p.HandleFunc("POST /api/projects/{name}/{action}", a.projectAction)
 	p.HandleFunc("GET /api/projects/{name}/logs", a.projectLogs)
 	p.HandleFunc("GET /api/projects/{name}/logs/stream", a.projectLogStream)
+	p.HandleFunc("GET /api/projects/{name}/unit", a.projectUnit)
+	p.HandleFunc("PUT /api/projects/{name}/unit", a.saveProjectUnit)
 
 	p.HandleFunc("GET /api/nginx/groups", a.nginxGroups)
 	p.HandleFunc("GET /api/nginx/files", a.nginxFiles)
@@ -66,6 +68,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	p.HandleFunc("GET /api/files/list", a.filesList)
 	p.HandleFunc("GET /api/files/download", a.filesDownload)
 	p.HandleFunc("POST /api/files/upload", a.filesUpload)
+	p.HandleFunc("POST /api/files/delete", a.filesDelete)
 
 	p.HandleFunc("GET /ws/terminal", a.d.Term.Handle)
 
@@ -485,6 +488,54 @@ func (a *API) projectLogStream(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 }
 
+func (a *API) projectUnit(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.d.Systemd.Find(r.PathValue("name"))
+	if !ok {
+		writeErr(w, http.StatusNotFound, "项目不存在")
+		return
+	}
+	if p.Type == "static" {
+		writeErr(w, http.StatusBadRequest, "静态项目没有 unit 文件")
+		return
+	}
+	path, content, err := a.d.Systemd.ReadUnit(r.Context(), p.Unit)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "content": content})
+}
+
+type saveUnitReq struct {
+	Content string `json:"content"`
+}
+
+func (a *API) saveProjectUnit(w http.ResponseWriter, r *http.Request) {
+	p, ok := a.d.Systemd.Find(r.PathValue("name"))
+	if !ok {
+		writeErr(w, http.StatusNotFound, "项目不存在")
+		return
+	}
+	if p.Type == "static" {
+		writeErr(w, http.StatusBadRequest, "静态项目没有 unit 文件")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
+	var req saveUnitReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	saved, backup, reloadOut, err := a.d.Systemd.WriteUnit(r.Context(), p.Unit, req.Content)
+	resp := map[string]any{"ok": err == nil, "saved": saved, "backup": backup, "reload_output": reloadOut}
+	if err != nil {
+		resp["error"] = err.Error()
+		writeJSON(w, http.StatusBadGateway, resp)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (a *API) nginxGroups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"dir":    a.d.Nginx.Dir(),
@@ -602,7 +653,13 @@ func (a *API) nginxReload(w http.ResponseWriter, r *http.Request) {
 func (a *API) filesList(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	rel := r.URL.Query().Get("path")
-	entries, err := a.d.Files.List(project, rel)
+	var entries []files.Entry
+	var err error
+	if project == "" && filepath.IsAbs(rel) {
+		entries, err = a.d.Files.ListPath(rel)
+	} else {
+		entries, err = a.d.Files.List(project, rel)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -613,7 +670,13 @@ func (a *API) filesList(w http.ResponseWriter, r *http.Request) {
 func (a *API) filesDownload(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	rel := r.URL.Query().Get("path")
-	abs, err := a.d.Files.Abs(project, rel)
+	var abs string
+	var err error
+	if project == "" && filepath.IsAbs(rel) {
+		abs, err = a.d.Files.AbsPath(rel)
+	} else {
+		abs, err = a.d.Files.Abs(project, rel)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -654,7 +717,13 @@ func (a *API) filesUpload(w http.ResponseWriter, r *http.Request) {
 		rel = header.Filename
 	}
 
-	saved, backup, size, err := a.d.Files.Save(project, rel, file)
+	var saved, backup string
+	var size int64
+	if project == "" && filepath.IsAbs(rel) {
+		saved, backup, size, err = a.d.Files.SavePath(rel, file)
+	} else {
+		saved, backup, size, err = a.d.Files.Save(project, rel, file)
+	}
 	if err != nil {
 		code := http.StatusBadRequest
 		if os.IsPermission(err) {
@@ -670,4 +739,40 @@ func (a *API) filesUpload(w http.ResponseWriter, r *http.Request) {
 		"size":   size,
 		"backup": backup,
 	})
+}
+
+type deleteReq struct {
+	Project  string `json:"project"`
+	Path     string `json:"path"`
+	Password string `json:"password"`
+}
+
+func (a *API) filesDelete(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req deleteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if !a.d.Auth.CheckPassword(req.Password) {
+		time.Sleep(300 * time.Millisecond)
+		writeErr(w, http.StatusUnauthorized, "密码错误")
+		return
+	}
+
+	var err error
+	if req.Project == "" && filepath.IsAbs(req.Path) {
+		err = a.d.Files.DeletePath(req.Path)
+	} else {
+		err = a.d.Files.Delete(req.Project, req.Path)
+	}
+	if err != nil {
+		code := http.StatusBadRequest
+		if os.IsPermission(err) {
+			code = http.StatusForbidden
+		}
+		writeErr(w, code, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

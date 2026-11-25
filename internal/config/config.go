@@ -39,6 +39,11 @@ type TerminalConfig struct {
 	Home  string `yaml:"home"`
 }
 
+type FilesConfig struct {
+	// 额外允许文件页访问的目录（白名单），留空只用项目目录。
+	ExtraDirs []string `yaml:"extra_dirs"`
+}
+
 type Config struct {
 	Listen       string         `yaml:"listen"`
 	Password     string         `yaml:"password"`
@@ -48,6 +53,7 @@ type Config struct {
 	Projects     []Project      `yaml:"projects"`
 	Nginx        NginxConfig    `yaml:"nginx"`
 	Terminal     TerminalConfig `yaml:"terminal"`
+	Files        FilesConfig    `yaml:"files"`
 
 	DiscoverProjects *bool    `yaml:"discover_projects"`
 	DiscoverExclude  []string `yaml:"discover_exclude"`
@@ -168,6 +174,21 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("nginx service 配置不合法: %q", c.Nginx.Service)
 		}
 	}
+	for i := range c.Files.ExtraDirs {
+		d := strings.TrimSpace(c.Files.ExtraDirs[i])
+		if d == "" {
+			continue
+		}
+		if !filepath.IsAbs(d) {
+			abs, err := filepath.Abs(d)
+			if err != nil {
+				return nil, fmt.Errorf("files.extra_dirs[%d] 无效: %w", i, err)
+			}
+			d = abs
+		}
+		c.Files.ExtraDirs[i] = filepath.Clean(d)
+	}
+
 	if c.Password == "" {
 		return nil, fmt.Errorf("未设置登录密码：请在配置文件中设置 password，或通过环境变量 PM_PASSWORD 提供")
 	}

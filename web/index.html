@@ -151,11 +151,12 @@
       <h2>文件</h2>
       <div class="row">
         <select id="files-project"></select>
+        <input id="files-path" class="path-input" placeholder="或输入绝对路径，如 /var/www" autocomplete="off">
         <label class="button ghost small" for="files-input">上传到当前目录</label>
         <input id="files-input" type="file" multiple hidden>
       </div>
     </div>
-    <div class="muted small">拖到列表空白处：上传到当前目录；拖到某个文件行上：覆盖该文件（旧文件自动备份为 .bak）。</div>
+    <div class="muted small">拖到列表空白处：上传到当前目录；拖到某个文件行上：覆盖该文件（旧文件自动备份为 .bak）。也可在输入框里输入绝对路径（白名单内的目录）直接浏览。</div>
     <div id="files-breadcrumb" class="breadcrumb mt"></div>
     <div id="files-drop" class="dropzone">
       <div class="table-wrap">
@@ -224,6 +225,41 @@
       <button type="submit" class="primary">添加</button>
     </div>
   </form>
+</div>
+
+<div id="delete-modal" class="mask hidden">
+  <form id="delete-form" class="modal form-modal">
+    <div class="modal-head">
+      <strong>删除确认</strong>
+      <button type="button" id="delete-close" class="ghost small">关闭</button>
+    </div>
+    <div class="muted small mono" id="delete-path" style="word-break:break-all"></div>
+    <div class="form-grid" style="margin-top:10px">
+      <label>输入登录密码以确认删除（删除后不可恢复）
+        <input id="delete-password" type="password" autocomplete="off" required>
+      </label>
+    </div>
+    <div id="delete-error" class="error" style="min-height:18px;margin-top:8px;font-size:12.5px"></div>
+    <div class="row" style="justify-content: flex-end; margin-top: 12px">
+      <button type="button" id="delete-cancel" class="ghost">取消</button>
+      <button type="submit" class="danger">删除</button>
+    </div>
+  </form>
+</div>
+
+<div id="unit-modal" class="mask hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <div><strong id="unit-title">Unit 文件</strong> <span class="muted small mono" id="unit-path"></span></div>
+      <button type="button" id="unit-close" class="ghost small">关闭</button>
+    </div>
+    <textarea id="unit-editor" class="editor unit-editor" spellcheck="false" wrap="off"></textarea>
+    <pre id="unit-result" class="code result hidden"></pre>
+    <div class="row" style="justify-content: flex-end; margin-top: 12px">
+      <button type="button" id="unit-close2" class="ghost">关闭</button>
+      <button id="unit-save" class="primary">保存并 daemon-reload</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast" class="toast hidden"></div>
