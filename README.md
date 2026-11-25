@@ -99,7 +99,22 @@ PM_PASSWORD=换成强密码 sudo bash install.sh
 - 启动失败自动回滚旧二进制
 - 启动后请求 `/api/me` 做一次健康检查
 
-升级时解压新包，重复执行即可，配置和 `projects.added.json` 不受影响。
+### 版本更新
+
+不用先手动停服务，脚本里会 `systemctl restart`，等于停+启。重复上面的部署步骤即可：
+
+```bash
+tar -xzf projectmanager-linux-amd64.tar.gz
+cd projectmanager-deploy
+sudo bash install.sh
+```
+
+更新时，现有的配置、systemd unit 和 `projects.added.json` 都保持不动；旧二进制备份为 `.bak`，重启失败自动回滚。重启期间有几秒中断，更新后建议检查：
+
+```bash
+systemctl status projectmanager --no-pager
+journalctl -u projectmanager -n 50 --no-pager
+```
 
 打发布包：
 
