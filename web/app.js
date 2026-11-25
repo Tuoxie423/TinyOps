@@ -489,28 +489,60 @@ function closeUnit() {
   unitName = "";
 }
 
-async function saveUnit() {
+async function saveUnit(restart) {
   if (!unitName) return;
   const content = $("#unit-editor").value;
-  const btn = $("#unit-save");
-  btn.disabled = true;
+  const btnSave = $("#unit-save");
+  const btnRestart = $("#unit-save-restart");
+  btnSave.disabled = true;
+  btnRestart.disabled = true;
+  const out = $("#unit-result");
   try {
     const d = await api(`/api/projects/${encodeURIComponent(unitName)}/unit`, {
       method: "PUT",
       body: { content },
     });
-    const out = $("#unit-result");
     out.classList.remove("hidden");
+    out.classList.remove("bad");
     let text = d.reload_output || "";
-    text += (text ? "\n" : "") + (d.ok ? "✅ 已保存，daemon-reload 完成" : "❌ " + (d.error || "保存失败"));
+    text += (text ? "\n" : "") + "✅ 已保存并 daemon-reload";
     if (d.backup) text += "\n备份：" + d.backup;
+
+    if (!restart) {
+      text += "\n提示：运行参数需重启项目后生效（「重载」不会应用 unit 改动）";
+      out.textContent = text;
+      toast("unit 已保存，请重启项目使其生效");
+      return;
+    }
+
+    text += "\n正在重启项目…";
     out.textContent = text;
-    out.classList.toggle("bad", !d.ok);
-    toast(d.ok ? "unit 已保存并 reload" : "unit 保存失败", !d.ok);
+    try {
+      const r = await api(`/api/projects/${encodeURIComponent(unitName)}/restart`, { method: "POST" });
+      text += "\n✅ 已重启" + (r.output && r.output.trim() ? "：" + r.output.trim() : "");
+      out.textContent = text;
+      toast("unit 已保存并重启");
+    } catch (e) {
+      text += "\n❌ 重启失败：" + e.message + "（unit 已保存，可修复后手动重启）";
+      out.textContent = text;
+      out.classList.add("bad");
+      toast("unit 已保存，但重启失败：" + e.message, true);
+    }
+    loadProjects().catch(() => {});
   } catch (e) {
+    const d = e.data;
+    if (d && typeof d === "object") {
+      out.classList.remove("hidden");
+      out.classList.add("bad");
+      let text = d.reload_output ? d.reload_output + "\n" : "";
+      text += "❌ " + (d.error || e.message);
+      if (d.backup) text += "\n备份：" + d.backup;
+      out.textContent = text;
+    }
     toast("保存失败：" + e.message, true);
   } finally {
-    btn.disabled = false;
+    btnSave.disabled = false;
+    btnRestart.disabled = false;
   }
 }
 
@@ -1256,7 +1288,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#unit-modal").addEventListener("click", (e) => {
     if (e.target === $("#unit-modal")) closeUnit();
   });
-  $("#unit-save").addEventListener("click", saveUnit);
+  $("#unit-save").addEventListener("click", () => saveUnit(false));
+  $("#unit-save-restart").addEventListener("click", () => saveUnit(true));
 
   $("#nginx-test").addEventListener("click", () => nginxAction("test"));
   $("#nginx-reload").addEventListener("click", () => nginxAction("reload"));

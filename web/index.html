@@ -253,11 +253,13 @@
       <div><strong id="unit-title">Unit 文件</strong> <span class="muted small mono" id="unit-path"></span></div>
       <button type="button" id="unit-close" class="ghost small">关闭</button>
     </div>
+    <div class="muted small">保存只执行 daemon-reload；ExecStart、User、Environment 等运行参数需重启项目后生效，「重载」不会应用 unit 改动。</div>
     <textarea id="unit-editor" class="editor unit-editor" spellcheck="false" wrap="off"></textarea>
     <pre id="unit-result" class="code result hidden"></pre>
     <div class="row" style="justify-content: flex-end; margin-top: 12px">
       <button type="button" id="unit-close2" class="ghost">关闭</button>
-      <button id="unit-save" class="primary">保存并 daemon-reload</button>
+      <button id="unit-save" class="ghost">仅保存（daemon-reload）</button>
+      <button id="unit-save-restart" class="primary">保存并重启</button>
     </div>
   </div>
 </div>
