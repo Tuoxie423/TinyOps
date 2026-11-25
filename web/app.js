@@ -12,6 +12,40 @@ let overviewTimer = null;
 let overviewBusy = false;
 let logES = null;
 
+let topSort = "cpu";
+let lastOverview = null;
+
+const TERM_THEMES = {
+  dark: {
+    background: "#070a0e",
+    foreground: "#dbe6f0",
+    cursor: "#4c8dff",
+    selectionBackground: "#2a3c52",
+    black: "#0b0f14",
+    red: "#f85149",
+    green: "#3fb950",
+    yellow: "#d29922",
+    blue: "#4c8dff",
+    magenta: "#a371f7",
+    cyan: "#39c5cf",
+    white: "#dbe6f0",
+  },
+  light: {
+    background: "#f7f9fc",
+    foreground: "#1b2530",
+    cursor: "#2f6fe4",
+    selectionBackground: "#c9dcfa",
+    black: "#1b2530",
+    red: "#cf222e",
+    green: "#1a7f37",
+    yellow: "#9a6700",
+    blue: "#2f6fe4",
+    magenta: "#8250df",
+    cyan: "#1b7c83",
+    white: "#1b2530",
+  },
+};
+
 let filesInited = false;
 let filesProject = "";
 let filesPath = "";
@@ -71,6 +105,33 @@ function barClass(pct) {
   if (pct >= 90) return "bad";
   if (pct >= 75) return "warn";
   return "";
+}
+
+/* ---------------- 主题 ---------------- */
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function applyTheme(theme, persist = true) {
+  theme = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  if (persist) {
+    try {
+      localStorage.setItem("pm_theme", theme);
+    } catch (e) {}
+  }
+  const btn = $("#theme-toggle");
+  if (btn) {
+    const label = theme === "light" ? "切换到深色主题" : "切换到浅色主题";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+  }
+  if (term) {
+    try {
+      term.options.theme = TERM_THEMES[theme];
+    } catch (e) {}
+  }
 }
 
 let toastTimer = null;
@@ -243,9 +304,18 @@ function renderOverview(d) {
         .join("")
     : '<div class="muted small">无数据</div>';
 
-  const top = d.top || [];
-  $("#ov-top").innerHTML = top.length
-    ? top
+  lastOverview = d;
+  renderTop();
+}
+
+function renderTop() {
+  const el = $("#ov-top");
+  if (!el || !lastOverview) return;
+  const seg = $("#top-sort");
+  if (seg) seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.sort === topSort));
+  const list = topSort === "mem" ? lastOverview.top_mem || [] : lastOverview.top || [];
+  el.innerHTML = list.length
+    ? list
         .map(
           (p) => `<tr>
             <td class="mono">${esc(p.pid)}</td>
@@ -900,20 +970,7 @@ function initTerminal() {
       lineHeight: 1.25,
       cursorBlink: true,
       scrollback: 8000,
-      theme: {
-        background: "#070a0e",
-        foreground: "#dbe6f0",
-        cursor: "#4c8dff",
-        selectionBackground: "#2a3c52",
-        black: "#0b0f14",
-        red: "#f85149",
-        green: "#3fb950",
-        yellow: "#d29922",
-        blue: "#4c8dff",
-        magenta: "#a371f7",
-        cyan: "#39c5cf",
-        white: "#dbe6f0",
-      },
+      theme: TERM_THEMES[currentTheme()],
     });
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
@@ -996,6 +1053,18 @@ function sendResize() {
 document.addEventListener("DOMContentLoaded", () => {
   $$(".tab").forEach((t) => {
     t.addEventListener("click", () => switchTab(t.dataset.tab));
+  });
+
+  applyTheme(currentTheme(), false);
+  $("#theme-toggle").addEventListener("click", () => {
+    applyTheme(currentTheme() === "light" ? "dark" : "light");
+  });
+
+  $("#top-sort").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-sort]");
+    if (!btn) return;
+    topSort = btn.dataset.sort;
+    renderTop();
   });
 
   $("#login-form").addEventListener("submit", async (e) => {

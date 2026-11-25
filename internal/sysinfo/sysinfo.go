@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,12 +70,13 @@ type ProcInfo struct {
 }
 
 type Snapshot struct {
-	Host  HostInfo   `json:"host"`
-	CPU   CPUInfo    `json:"cpu"`
-	Mem   MemInfo    `json:"mem"`
-	Disks []DiskInfo `json:"disks"`
-	Net   NetInfo    `json:"net"`
-	Top   []ProcInfo `json:"top"`
+	Host   HostInfo   `json:"host"`
+	CPU    CPUInfo    `json:"cpu"`
+	Mem    MemInfo    `json:"mem"`
+	Disks  []DiskInfo `json:"disks"`
+	Net    NetInfo    `json:"net"`
+	Top    []ProcInfo `json:"top"`
+	TopMem []ProcInfo `json:"top_mem"`
 }
 
 type Sampler struct {
@@ -136,6 +138,7 @@ func (s *Sampler) Snapshot() Snapshot {
 	snap := s.snap
 	snap.Disks = append([]DiskInfo(nil), s.snap.Disks...)
 	snap.Top = append([]ProcInfo(nil), s.snap.Top...)
+	snap.TopMem = append([]ProcInfo(nil), s.snap.TopMem...)
 	return snap
 }
 
@@ -180,7 +183,7 @@ func (s *Sampler) collect() {
 	snap.Disks = collectDisks()
 
 	snap.Net = s.collectNet()
-	snap.Top = collectTop()
+	snap.Top, snap.TopMem = collectTop()
 
 	s.mu.Lock()
 	s.snap = snap
@@ -247,17 +250,17 @@ func (s *Sampler) collectNet() NetInfo {
 	return info
 }
 
-func collectTop() []ProcInfo {
+// collectTop 返回按 CPU 和按内存分别排序的 Top 8 进程。
+func collectTop() ([]ProcInfo, []ProcInfo) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, "ps", "-eo", "pid=,user=,pcpu=,pmem=,args=", "--sort=-pcpu").Output()
+	out, err := exec.CommandContext(ctx, "ps", "-eo", "pid=,user=,pcpu=,pmem=,args=").Output()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	lines := strings.Split(string(out), "\n")
-	procs := make([]ProcInfo, 0, 8)
-	for _, line := range lines {
+	var procs []ProcInfo
+	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -274,9 +277,16 @@ func collectTop() []ProcInfo {
 			cmd = cmd[:90] + "…"
 		}
 		procs = append(procs, ProcInfo{PID: pid, User: fields[1], CPU: pcpu, Mem: pmem, Cmd: cmd})
-		if len(procs) >= 8 {
-			break
-		}
 	}
-	return procs
+	return topBy(procs, func(p ProcInfo) float64 { return p.CPU }),
+		topBy(procs, func(p ProcInfo) float64 { return p.Mem })
+}
+
+func topBy(procs []ProcInfo, key func(ProcInfo) float64) []ProcInfo {
+	sorted := append([]ProcInfo(nil), procs...)
+	sort.SliceStable(sorted, func(i, j int) bool { return key(sorted[i]) > key(sorted[j]) })
+	if len(sorted) > 8 {
+		sorted = sorted[:8]
+	}
+	return sorted
 }
