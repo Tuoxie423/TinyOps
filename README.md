@@ -13,6 +13,7 @@
 - Nginx：按分组浏览 `conf.d` / `sites-enabled` / `sites-available`，在线编辑、备份、`nginx -t`、重载、站点启停
 - 文件：浏览项目目录或任意绝对路径，拖拽上传/覆盖、删除（密码确认），自动 `.bak` 备份并保留权限
 - 终端：PTY 终端，vim、htop 这类交互程序可以用
+- 主题：深浅色一键切换，默认跟随系统偏好
 - 登录：密码 + 会话 Cookie
 
 ## 截图
@@ -48,6 +49,14 @@ Nginx 配置
 实时日志
 
 ![实时日志](docs/screenshots/08-logs.png)
+
+Unit 文件
+
+![Unit 文件](docs/screenshots/09-unit.png)
+
+浅色主题
+
+![浅色主题](docs/screenshots/10-light.png)
 
 ## 连接
 
