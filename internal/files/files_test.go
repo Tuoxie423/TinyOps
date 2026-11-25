@@ -16,7 +16,7 @@ func newTestService(t *testing.T) (*Service, string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return New([]config.Project{{Name: "app", Unit: "app.service", Dir: dir}}, nil), dir
+	return New([]config.Project{{Name: "app", Unit: "app.service", Dir: dir}}), dir
 }
 
 func TestSaveCreatesFileAndDirs(t *testing.T) {
@@ -131,7 +131,7 @@ func TestList(t *testing.T) {
 }
 
 func TestUnknownProjectAndMissingDir(t *testing.T) {
-	s := New([]config.Project{{Name: "nodir", Unit: "nodir.service"}}, nil)
+	s := New([]config.Project{{Name: "nodir", Unit: "nodir.service"}})
 	if _, err := s.List("missing", ""); err == nil {
 		t.Fatal("未知项目应报错")
 	}
